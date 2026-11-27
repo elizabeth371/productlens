@@ -46,7 +46,7 @@ def _to_data_url(url: str, max_bytes: int = 2_500_000) -> str | None:
         return None
 
 
-def analyze_images(image_urls: list[str], max_images: int = 3) -> list | None:
+def analyze_images(image_urls: list[str], max_images: int = 2) -> list | None:
     """返回视觉分析结果；未配置或失败时返回 None（调用方降级）。"""
     if not available() or not image_urls:
         return None
@@ -65,7 +65,7 @@ def analyze_images(image_urls: list[str], max_images: int = 3) -> list | None:
         resp = _client_vl().chat.completions.create(
             model=config.VL_MODEL,
             messages=[{"role": "user", "content": content}],
-            max_tokens=1200,
+            max_tokens=900,
         )
         from llm import parse_json
         parsed = parse_json(resp.choices[0].message.content)

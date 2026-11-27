@@ -54,8 +54,22 @@ document.addEventListener("click", e => {
     });
   }
   if (e.target.tagName === "IMG" && e.target.closest(".gallery")) {
-    window.open(e.target.src, "_blank");
+    $("#lightboxImg").src = e.target.src;
+    $("#lightbox").classList.remove("hidden");
   }
+});
+
+/* 灯箱关闭：按钮 / 点击遮罩 / ESC */
+function closeLightbox() {
+  $("#lightbox").classList.add("hidden");
+  $("#lightboxImg").src = "";
+}
+$("#lbClose").addEventListener("click", e => { e.stopPropagation(); closeLightbox(); });
+$("#lightbox").addEventListener("click", e => {
+  if (e.target.id === "lightbox") closeLightbox();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !$("#lightbox").classList.contains("hidden")) closeLightbox();
 });
 
 /* ---------------- 主流程 ---------------- */

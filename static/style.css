@@ -289,6 +289,31 @@ h1, h2, h3, .section-tag, .brand-text strong {
 
 .foot { text-align: center; font-size: 12px; color: var(--ink-faint); padding: 26px 0 34px; }
 
+/* ---------- 图片灯箱 ---------- */
+.lightbox {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(23, 33, 44, 0.92);
+  display: flex; align-items: center; justify-content: center;
+  cursor: zoom-out;
+  animation: fade .18s ease both;
+}
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+.lightbox img {
+  max-width: 92vw; max-height: 86vh;
+  border-radius: 10px; border: 2px solid rgba(255,255,255,.25);
+  box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  cursor: default;
+}
+.lb-close {
+  position: absolute; top: 18px; right: 26px;
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.5);
+  background: rgba(255,255,255,.12); color: #fff;
+  font-size: 26px; line-height: 1; cursor: pointer;
+  transition: all .15s;
+}
+.lb-close:hover { background: var(--accent); border-color: var(--accent); }
+
 /* ---------- 响应式 ---------- */
 @media (max-width: 720px) {
   .product-grid, .analysis-grid { grid-template-columns: 1fr; }

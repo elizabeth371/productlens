@@ -19,8 +19,8 @@ def text_client() -> OpenAI:
     global _client
     if _client is None:
         if not config.TEXT_LLM_READY:
-            raise RuntimeError("未配置 DEEPSEEK_API_KEY，请在 .env 或环境变量中填写")
-        _client = OpenAI(api_key=config.DEEPSEEK_API_KEY, base_url=config.DEEPSEEK_BASE_URL)
+            raise RuntimeError("未配置 LLM_API_KEY，请在 .env 或环境变量中填写")
+        _client = OpenAI(api_key=config.LLM_API_KEY, base_url=config.LLM_BASE_URL)
     return _client
 
 
@@ -31,7 +31,7 @@ def chat_json(system: str, user: str, temperature: float = 0.4, max_tokens: int 
     for attempt in range(retries + 1):
         try:
             resp = text_client().chat.completions.create(
-                model=config.DEEPSEEK_MODEL,
+                model=config.LLM_MODEL,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},

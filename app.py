@@ -7,6 +7,7 @@
 import os
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, jsonify, render_template, request
 
@@ -27,7 +28,7 @@ def index():
 def health():
     return jsonify({
         "status": "ok",
-        "text_model": config.DEEPSEEK_MODEL if config.TEXT_LLM_READY else None,
+        "text_model": config.LLM_MODEL if config.TEXT_LLM_READY else None,
         "vision_enabled": config.VISION_READY,
     })
 
@@ -50,37 +51,41 @@ def analyze():
         # 1. 抓取
         t0 = time.time()
         page = scraper.fetch_product(url)
-        step("抓取商品页面", t0, f"来源: {'直连' if page['source'] == 'direct' else 'reader 代理'}")
+        step("抓取商品页面", t0, f"来源: {'直连' if page['source'] == 'direct' else '代理/reader'}")
 
-        # 2. LLM 提取补全
+        # 2. 信息提取 ∥ 图片理解（互不依赖，并行执行）
         t0 = time.time()
-        extracted = llm.extract_product_info(page["raw_text"] or "")
-        product = llm.merge_product(page, extracted)
-        product["url"], product["asin"] = page["url"], page["asin"]
-        step("AI 提取商品信息", t0, f"{len(product.get('bullets') or [])} 条卖点 / {len(product.get('specs') or {})} 项规格")
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            fut_extract = ex.submit(llm.extract_product_info, page["raw_text"] or "")
+            fut_vision = (
+                ex.submit(vision.analyze_images, page.get("images") or [])
+                if vision.available() and page.get("images") else None
+            )
+            extracted = fut_extract.result()
+            product = llm.merge_product(page, extracted)
+            product["url"], product["asin"] = page["url"], page["asin"]
+            image_insights = fut_vision.result() if fut_vision else None
+        vision_detail = (
+            "已启用" if image_insights
+            else ("图片下载或模型调用失败，已跳过" if fut_vision else "未配置视觉模型，已跳过")
+        )
+        step("AI 提取信息 + 图片理解", t0,
+             f"{len(product.get('bullets') or [])} 条卖点 · 视觉: {vision_detail}")
 
-        # 3. 图片理解（可选）
-        image_insights = None
-        if vision.available() and product.get("images"):
-            t0 = time.time()
-            image_insights = vision.analyze_images(product["images"])
-            step("商品图片理解", t0, "已启用" if image_insights else "图片下载或模型调用失败，已跳过")
-        else:
-            step("商品图片理解", t0 if vision.available() else time.time(),
-                 "未配置视觉模型，已跳过" if not vision.available() else "页面无可用图片")
-
-        # 4. 产品分析
+        # 3. 产品分析
         t0 = time.time()
         analysis = llm.analyze_product(product, image_insights)
         if image_insights:
             analysis["image_insights"] = image_insights
         step("产品深度分析", t0)
 
-        # 5. 中英文案
+        # 4. 中英文案并行生成
         t0 = time.time()
-        copy_zh = llm.generate_copy_zh(product, analysis)
-        copy_en = llm.generate_copy_en(product, analysis)
-        step("生成口播文案", t0, "中文 + 英文")
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            fut_zh = ex.submit(llm.generate_copy_zh, product, analysis)
+            fut_en = ex.submit(llm.generate_copy_en, product, analysis)
+            copy_zh, copy_en = fut_zh.result(), fut_en.result()
+        step("生成口播文案", t0, "中文 + 英文（并行）")
 
         # 6. 质量自检
         t0 = time.time()
@@ -109,7 +114,7 @@ def analyze():
             "vision_enabled": bool(image_insights),
             "steps": steps,
             "elapsed": round(time.time() - t_start, 1),
-            "model": config.DEEPSEEK_MODEL,
+            "model": config.LLM_MODEL,
         })
 
     except Exception as e:  # noqa: BLE001
