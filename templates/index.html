@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ProductLens · AI 产品分析助手</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <div class="brand-text">
+      <strong>ProductLens</strong>
+      <span>AI 产品分析助手 · 输入 Amazon 链接，30 秒看懂一个商品</span>
+    </div>
+  </div>
+  <div class="topbar-meta" id="topbarMeta">文本模型：加载中</div>
+</header>
+
+<main class="wrap">
+
+  <!-- 输入区 -->
+  <section class="hero">
+    <h1>把一条商品链接，变成<em>可上线的带货素材</em></h1>
+    <p class="hero-sub">自动抓取商品信息 → 深度分析 → 生成短视频口播文案 → AI 质量自检</p>
+    <div class="input-row">
+      <input id="urlInput" type="text" spellcheck="false"
+             placeholder="粘贴 Amazon 商品链接，例如 https://www.amazon.com/dp/B0F6YQ96L5">
+      <button id="analyzeBtn">开始分析</button>
+    </div>
+    <div class="examples">
+      <span>试试：</span>
+      <button class="chip" data-url="https://www.amazon.com/dp/B0F6YQ96L5">示例 1 · 折叠椅</button>
+      <button class="chip" data-url="https://www.amazon.com/VTOY-Chairs%EF%BC%8CCamping-Foldable-Shadefor-Camping/dp/B0CXT9RSGQ">示例 2 · 露营椅</button>
+    </div>
+    <div id="errorBar" class="error-bar hidden"></div>
+  </section>
+
+  <!-- 进度区 -->
+  <section id="progressCard" class="progress-card hidden">
+    <div class="progress-head">
+      <span class="spinner"></span>
+      <span id="progressLabel">正在抓取商品页面…</span>
+      <span class="progress-timer" id="progressTimer">0s</span>
+    </div>
+    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+  </section>
+
+  <!-- 结果区 -->
+  <div id="results" class="hidden">
+
+    <!-- 商品档案 -->
+    <section class="card product-card">
+      <div class="section-tag">01 · 产品信息整理</div>
+      <div class="product-grid">
+        <div class="gallery" id="gallery"></div>
+        <div class="product-info">
+          <h2 id="pTitle"></h2>
+          <div class="badge-row" id="badgeRow"></div>
+          <div class="bullets" id="pBullets"></div>
+        </div>
+      </div>
+      <details class="specs-fold" id="specsFold">
+        <summary>规格参数</summary>
+        <table class="specs-table" id="specsTable"></table>
+      </details>
+    </section>
+
+    <!-- 产品分析 -->
+    <section class="card">
+      <div class="section-tag">02 · 产品分析</div>
+      <div id="positioning" class="positioning"></div>
+      <div class="analysis-grid">
+        <div class="a-block" id="blockUsers"></div>
+        <div class="a-block" id="blockScenarios"></div>
+        <div class="a-block" id="blockPains"></div>
+        <div class="a-block" id="blockPricing"></div>
+      </div>
+      <div class="selling" id="blockSelling"></div>
+      <div class="risks" id="blockRisks"></div>
+    </section>
+
+    <!-- 口播文案 -->
+    <section class="card">
+      <div class="section-tag">03 · 视频口播文案</div>
+      <div class="lang-tabs">
+        <button class="lang-tab active" data-lang="zh">中文口播</button>
+        <button class="lang-tab" data-lang="en">English VO</button>
+      </div>
+      <div id="copyZh" class="copy-pane">
+        <div class="hook-box"><span class="hook-label">前 5 秒钩子</span><p id="zhHook"></p></div>
+        <p class="script" id="zhScript"></p>
+        <div class="copy-foot">
+          <span class="char-count" id="zhCount"></span>
+          <span class="shot" id="zhShot"></span>
+          <button class="copy-btn" data-copy="zh">复制文案</button>
+        </div>
+      </div>
+      <div id="copyEn" class="copy-pane hidden">
+        <div class="hook-box"><span class="hook-label">First 5s Hook</span><p id="enHook"></p></div>
+        <p class="script" id="enScript"></p>
+        <div class="copy-foot">
+          <span class="char-count" id="enCount"></span>
+          <span class="shot" id="enShot"></span>
+          <button class="copy-btn" data-copy="en">复制文案</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 质检报告 -->
+    <section class="card">
+      <div class="section-tag">04 · AI 质量自检</div>
+      <div id="qcHead" class="qc-head"></div>
+      <div id="qcChecks" class="qc-checks"></div>
+    </section>
+
+    <!-- 流水线元信息 -->
+    <section class="meta-bar" id="metaBar"></section>
+  </div>
+
+</main>
+
+<footer class="foot">ProductLens — AI 工程师实习生笔试项目 · Flask + DeepSeek · 图片理解插槽默认关闭</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

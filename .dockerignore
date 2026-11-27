@@ -1,0 +1,8 @@
+.env
+.git
+.gitignore
+__pycache__/
+*.pyc
+result_test.json
+_test_body.json
+_show_result.py
