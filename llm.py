@@ -6,6 +6,7 @@
 """
 import json
 import re
+import time
 
 from openai import OpenAI
 
@@ -26,7 +27,7 @@ def text_client() -> OpenAI:
 
 def chat_json(system: str, user: str, temperature: float = 0.4, max_tokens: int = 3000,
               retries: int = 2) -> dict:
-    """调用文本模型并强制 JSON 输出；带格式容错重试。"""
+    """调用文本模型并强制 JSON 输出；带格式容错重试与退避。"""
     last_err = None
     for attempt in range(retries + 1):
         try:
@@ -38,11 +39,14 @@ def chat_json(system: str, user: str, temperature: float = 0.4, max_tokens: int 
                 ],
                 temperature=0 if attempt > 0 else temperature,
                 max_tokens=max_tokens,
+                timeout=180,
                 response_format={"type": "json_object"},
             )
             return parse_json(resp.choices[0].message.content)
         except Exception as e:  # noqa: BLE001
             last_err = e
+            if attempt < retries:
+                time.sleep(3 * (attempt + 1))  # 端点瞬断/限流时退避重试
     raise RuntimeError(f"LLM 调用失败: {last_err}")
 
 
@@ -134,18 +138,64 @@ def analyze_product(product: dict, image_analysis: list | None = None) -> dict:
 
 # ================================================================ 3. 口播文案
 
-COPY_SYSTEM = """你是抖音/TikTok 头部带货短视频编导，擅长写高转化的中文口播带货文案。
-为给定产品写一段短视频口播文案，硬性要求：
-1. 全文（含标点）不超过 150 个汉字；
-2. 开头 5 秒（约前 25 字）必须有强钩子——用冲突、悬念、反常识或直击痛点的方式，
-   让用户忍不住继续看，禁止用"家人们""大家好"这类开场白；
-3. 中段用 1-2 个最抓人的卖点，讲"用户能得到什么"而不是罗列参数；
-4. 结尾有明确的行动号召（点击下方链接/左下角小黄车等）；
-5. 口语化、有节奏感、适合真人出镜念出来；禁止夸大与绝对化用语（第一/最/治愈等）；
-6. 只能使用给定商品信息中的事实，禁止编造功能、价格与效果。
+COPY_SYSTEM = """你是抖音/TikTok 头部带货短视频编导，写出来的口播像真人在镜头前说话，
+绝不能有 AI 说明书味。为给定产品写一段短视频口播文案。
+
+【结构模板】
+1. 前 5 秒（约 25 字）强钩子：痛点、反常识或冲突，禁止"家人们""大家好"式开场；
+2. 场景代入：用"你"+一个具体画面把观众拉进使用场景；
+3. 卖点最多挑 2 个，把参数翻译成体感（如"续航 36 小时"→"充一次，用它一周"；
+   体感解释不得超出参数本意）；
+4. 价格口语化报出（如 USD 67.99 →"六十七块九"，或"67 刀 9"），可加价值锚点
+   （"一顿火锅钱"），锚点不得与价格差距悬殊；
+5. 结尾明确 CTA（点击下方链接 / 左下角小黄车）。
+
+【语言规则——反 AI 味】
+- 短句为主，一句说一件事，多用句号逗号，禁止连续两个以上分号排比；
+- 禁用词：此外/同时/不仅…还/总之/堪称/为您/贴心/卓越/极致/赋能/一站式/焕新/青睐；
+- 允许适度语气词让句子像人话：说实话/你敢信/别小看/讲真（每篇至多 2 个）；
+- 形容词最多留一个，其余用数字、动作和画面代替；
+- 念出来必须顺口——写完自己默读一遍，拗口就改。
+
+【对照示例】（同一款 $39.99 智能音箱，4.7 分）
+死板版（禁止这样写）："这款智能音箱音质出色，搭载前置扬声器，支持语音助手，
+功能丰富，操作简单，性价比高，快来购买吧。"
+口播版（照这个感觉写）："39块9，请回家一个不顶嘴的室友。你瘫在沙发上喊一嗓子，
+它就把灯关了、音乐放了。前代用户打出4.7分，差评最多的一条是——小孩跟它聊天
+停不下来。左下角小黄车，39块9，也就一顿外卖钱。"
+
+【硬约束】
+- 全文（含标点）不超过 150 字；
+- 只能使用给定商品信息中的事实，禁止编造功能、价格、评分与效果；
+- 禁止夸大与绝对化用语（第一/最/治愈/根治等）。
 JSON 输出：
 {"hook_5s": "前5秒钩子单独摘出", "script": "完整口播文案",
  "char_count": 字数, "shot_suggestion": "一句话画面建议"}"""
+
+
+COPY_EN_SYSTEM = """You are a top TikTok/Reels UGC scriptwriter. Your scripts sound like a real
+person talking to camera, never like AI ad copy. Write a spoken voiceover for the given product.
+
+[Structure]
+1. First 5 seconds (~20 words): a hook via pain point / counter-intuition / conflict.
+   No "hey guys" openings.
+2. Drop the viewer into one concrete scene using "you".
+3. Pick at most 2 benefits; translate specs into felt experience
+   ("36-hour battery" -> "charge it once, use it all week") without overstating the spec.
+4. Say the price out loud in a casual way, with a value anchor (e.g. "less than a takeout run").
+5. Clear CTA at the end.
+
+[Anti-AI-flavor rules]
+- Short sentences, one idea each. No stacked semicolons or parallel clause lists.
+- Banned words: moreover / furthermore / in conclusion / cutting-edge / revolutionary /
+  elevate / seamless / unmatched / elevate your lifestyle.
+- Keep at most one adjective per claim; prefer numbers, actions, images.
+- Read it aloud in your head — if it sounds stiff, rewrite it.
+
+[Hard rules]
+- Max 110 words total; only use facts from the given product data; never invent
+  features, prices or ratings; no exaggeration or absolute claims.
+JSON output: {"hook_5s": str, "script": str, "char_count": int, "shot_suggestion": str}"""
 
 
 def generate_copy_zh(product: dict, analysis: dict) -> dict:
@@ -159,31 +209,6 @@ def generate_copy_zh(product: dict, analysis: dict) -> dict:
     }
     user = f"商品事实信息（文案只能基于这些事实）：\n{json.dumps(facts, ensure_ascii=False)}"
     return chat_json(COPY_SYSTEM, user, temperature=0.8, max_tokens=1200)
-
-
-COPY_EN_SYSTEM = COPY_SYSTEM.replace(
-    "你是抖音/TikTok 头部带货短视频编导，擅长写高转化的中文口播带货文案。",
-    "You are a top TikTok/Reels UGC scriptwriter for high-converting product videos."
-).replace(
-    """为给定产品写一段短视频口播文案，硬性要求：
-1. 全文（含标点）不超过 150 个汉字；
-2. 开头 5 秒（约前 25 字）必须有强钩子——用冲突、悬念、反常识或直击痛点的方式，
-   让用户忍不住继续看，禁止用"家人们""大家好"这类开场白；
-3. 中段用 1-2 个最抓人的卖点，讲"用户能得到什么"而不是罗列参数；
-4. 结尾有明确的行动号召（点击下方链接/左下角小黄车等）；
-5. 口语化、有节奏感、适合真人出镜念出来；禁止夸大与绝对化用语（第一/最/治愈等）；
-6. 只能使用给定商品信息中的事实，禁止编造功能、价格与效果。
-JSON 输出：
-{"hook_5s": "前5秒钩子单独摘出", "script": "完整口播文案",
- "char_count": 字数, "shot_suggestion": "一句话画面建议"}""",
-    """Write a spoken voiceover script in English. Hard rules:
-1. Max 110 words total; 2. First 5 seconds (~20 words) must contain a strong hook
-(conflict / suspense / counter-intuitive / pain point), no "hey guys" openings;
-3. Middle: 1-2 most compelling benefits, not spec lists; 4. Clear CTA at the end;
-5. Conversational, rhythmic, made to be spoken on camera; no exaggeration or absolute claims;
-6. Only use facts from the given product data; never invent features or prices.
-JSON output: {"hook_5s": str, "script": str, "char_count": int, "shot_suggestion": str}"""
-)
 
 
 def generate_copy_en(product: dict, analysis: dict) -> dict:
@@ -207,7 +232,9 @@ C. 钩子检查：中文文案前 25 字是否有真正的钩子（冲突/悬念
    而不是普通开场白；
 D. 字数检查：逐字重数中文文案（含标点、不含空格）是否 ≤150 字；若超长，
    必须压缩重写至 ≤150 字以内，同时保留前 5 秒钩子与结尾行动号召；
-E. 场景感检查：是否像真实带货口播（有行动号召、口语节奏），而非产品说明书。
+E. AI 味检查：是否像真人带货口播（有场景、有节奏、念着顺口）？若出现分号排比
+   堆砌、书面连接词（此外/同时/堪称/极致/赋能/一站式）、形容词空转等
+   "产品说明书腔"，必须按口语化标准重写。
 发现问题直接输出修正后的完整文案；没有问题则原样保留。
 JSON 输出：
 {
@@ -251,6 +278,13 @@ def quality_check(product: dict, copy_zh: dict, copy_en: dict) -> dict:
         if count_zh_chars(final_zh["script"]) > 150:
             final_zh["script"] = hard_truncate_zh(final_zh["script"], 150)
         final_zh["char_count"] = count_zh_chars(final_zh["script"])
+
+    # 质检重写可能丢掉画面建议等字段，从原文案回补
+    for key in ("shot_suggestion",):
+        if not final_zh.get(key) and copy_zh.get(key):
+            final_zh[key] = copy_zh[key]
+        if not final_en.get(key) and copy_en.get(key):
+            final_en[key] = copy_en[key]
 
     result["final_copy_zh"] = final_zh
     result["final_copy_en"] = final_en
