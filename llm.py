@@ -205,7 +205,8 @@ A. 事实一致性：文案中的价格、功能、规格、评分是否都能�
 B. 夸大检查：是否出现"第一/最/顶级/神奇/根治/绝对"等绝对化或疗效暗示用语？
 C. 钩子检查：中文文案前 25 字是否有真正的钩子（冲突/悬念/痛点/反常识），
    而不是普通开场白；
-D. 字数检查：中文文案（含标点）是否 ≤150 字；
+D. 字数检查：逐字重数中文文案（含标点、不含空格）是否 ≤150 字；若超长，
+   必须压缩重写至 ≤150 字以内，同时保留前 5 秒钩子与结尾行动号召；
 E. 场景感检查：是否像真实带货口播（有行动号召、口语节奏），而非产品说明书。
 发现问题直接输出修正后的完整文案；没有问题则原样保留。
 JSON 输出：
@@ -232,9 +233,72 @@ def quality_check(product: dict, copy_zh: dict, copy_en: dict) -> dict:
     )
     result = chat_json(QC_SYSTEM, user, temperature=0.2, max_tokens=2500)
     # 兜底：修正后的文案缺失时回退原文案
-    result.setdefault("final_copy_zh", copy_zh)
-    result.setdefault("final_copy_en", copy_en)
+    final_zh = result.get("final_copy_zh") or copy_zh
+    final_en = result.get("final_copy_en") or copy_en
+
+    # 代码级硬约束：中文文案 ≤150 字（LLM 质检可能漏判字数）
+    n = count_zh_chars(final_zh.get("script") or "")
+    if n > 150:
+        issues = result.setdefault("issues_found", [])
+        issues.append(f"中文文案 {n} 字超出 150 字硬限制，已自动压缩")
+        result["verdict"] = "fixed"
+        try:
+            final_zh = compress_copy_zh(final_zh["script"])
+        except Exception:  # noqa: BLE001 —— 压缩失败则确定性截断
+            final_zh = {"hook_5s": final_zh.get("hook_5s", ""),
+                        "script": hard_truncate_zh(final_zh["script"], 150),
+                        "char_count": 150}
+        if count_zh_chars(final_zh["script"]) > 150:
+            final_zh["script"] = hard_truncate_zh(final_zh["script"], 150)
+        final_zh["char_count"] = count_zh_chars(final_zh["script"])
+
+    result["final_copy_zh"] = final_zh
+    result["final_copy_en"] = final_en
     return result
+
+
+COMPRESS_SYSTEM = """你是短视频文案编辑。给定的中文口播文案超过了 150 字硬性上限。
+将其压缩到 150 字以内（含标点，不含空格），要求：
+- 保留原文案的前 5 秒钩子与结尾行动号召；
+- 只能删减与压缩表达，不得新增任何事实（价格/功能均须来自原文）；
+- 压缩后仍要口语化、有节奏感。
+JSON 输出：{"hook_5s": str, "script": str, "char_count": int}"""
+
+
+def compress_copy_zh(script: str) -> dict:
+    out = chat_json(COMPRESS_SYSTEM, f"超长文案：\n{script}",
+                    temperature=0.2, max_tokens=800)
+    return {
+        "hook_5s": out.get("hook_5s") or script[:25],
+        "script": out.get("script") or script,
+        "char_count": count_zh_chars(out.get("script") or script),
+    }
+
+
+def hard_truncate_zh(text: str, limit: int) -> str:
+    """确定性兜底：保证 ≤limit 字，优先在句末标点处收口。"""
+    if count_zh_chars(text) <= limit:
+        return text
+    last_end, n = 0, 0
+    for i, ch in enumerate(text):
+        if ch == " ":
+            continue
+        n += 1
+        if ch in "。！？!?；;":
+            last_end = i + 1
+        if n >= limit:
+            break
+    if last_end and count_zh_chars(text[:last_end]) <= limit:
+        return text[:last_end]
+    out, k = [], 0
+    for ch in text:
+        if ch == " ":
+            continue
+        out.append(ch)
+        k += 1
+        if k >= limit:
+            break
+    return "".join(out)
 
 
 def count_zh_chars(text: str) -> int:
