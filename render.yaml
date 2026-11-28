@@ -1,0 +1,18 @@
+# Render Blueprint：https://render.com/docs/blueprint-spec
+# 在 Render 中选择 "Deploy from Blueprint" 即可一键创建；密钥在面板中填入。
+services:
+  - type: web
+    name: productlens
+    runtime: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /api/health
+    envVars:
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_BASE_URL
+        sync: false
+      - key: LLM_MODEL
+        sync: false
+      - key: VL_MODEL
+        sync: false

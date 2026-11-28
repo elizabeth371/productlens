@@ -20,9 +20,8 @@ let timerHandle = null;
 fetch("/api/health").then(r => r.json()).then(h => {
   el.topbarMeta.textContent = h.text_model
     ? `文本模型 ${h.text_model} · 图片理解 ${h.vision_enabled ? "已启用" : "未启用"}`
-    : "未配置 DEEPSEEK_API_KEY";
+    : "未配置 LLM_API_KEY";
 }).catch(() => { el.topbarMeta.textContent = "后端未就绪"; });
-
 document.querySelectorAll(".chip").forEach(chip => {
   chip.addEventListener("click", () => {
     el.urlInput.value = chip.dataset.url;
@@ -72,15 +71,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape" && !$("#lightbox").classList.contains("hidden")) closeLightbox();
 });
 
-/* ---------------- 主流程 ---------------- */
-const PROGRESS_STAGES = [
-  ["正在抓取商品页面…", 12],
-  ["正在 AI 提取商品信息…", 30],
-  ["正在理解产品定位与人群…", 55],
-  ["正在生成中英文口播文案…", 78],
-  ["正在执行质量自检…", 92],
-];
-
+/* ---------------- 主流程（异步任务 + 轮询） ---------------- */
 function start() {
   const url = el.urlInput.value.trim();
   if (!url) { showError("请先粘贴 Amazon 商品链接"); return; }
@@ -89,37 +80,63 @@ function start() {
   el.btn.textContent = "分析中…";
   el.results.classList.add("hidden");
   el.progressCard.classList.remove("hidden");
-  setProgress(6, "正在提交任务…");
+  setProgress(4, "正在提交任务…");
 
-  let stageIdx = 0;
   const t0 = Date.now();
-  timerHandle = setInterval(() => {
+  const timer = setInterval(() => {
     el.progressTimer.textContent = ((Date.now() - t0) / 1000).toFixed(0) + "s";
-    const next = PROGRESS_STAGES[stageIdx];
-    if (next && stageIdx < PROGRESS_STAGES.length - 1) {
-      stageIdx += 1;
-      setProgress(next[1], next[0]);
-    }
-  }, 2600);
+  }, 500);
 
-  fetch("/api/analyze", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
-  })
-    .then(async (resp) => {
+  const finish = () => {
+    clearInterval(timer);
+    clearInterval(pollHandle);
+    el.progressCard.classList.add("hidden");
+    el.btn.disabled = false;
+    el.btn.textContent = "开始分析";
+  };
+
+  let pollHandle = null;
+  (async () => {
+    try {
+      const resp = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
       const data = await resp.json();
-      if (!resp.ok || !data.ok) throw new Error(data.error || `请求失败 (${resp.status})`);
-      state.result = data;
-      render(data);
-    })
-    .catch(err => showError(err.message))
-    .finally(() => {
-      clearInterval(timerHandle);
-      el.progressCard.classList.add("hidden");
-      el.btn.disabled = false;
-      el.btn.textContent = "开始分析";
-    });
+      if (!resp.ok || !data.ok) throw new Error(data.error || `提交失败 (${resp.status})`);
+
+      let fails = 0;
+      pollHandle = setInterval(async () => {
+        try {
+          const pr = await fetch(`/api/job/${data.job_id}`);
+          const pj = await pr.json();
+          fails = 0;
+          if (pj.status === "error") throw new Error(pj.error || "流水线执行失败");
+          updateProgress(pj);
+          if (pj.status === "done") {
+            state.result = pj.result;
+            render(pj.result);
+            finish();
+          }
+        } catch (e) {
+          if (++fails >= 3) { showError(e.message); finish(); }
+        }
+      }, 1500);
+    } catch (err) {
+      showError(err.message);
+      finish();
+    }
+  })();
+}
+
+function updateProgress(pj) {
+  const stages = pj.stages || [];
+  const done = stages.filter(s => s.status === "done").length;
+  const running = stages.find(s => s.status === "running");
+  const pct = Math.min(96, (done / stages.length) * 100 + (running ? 8 : 0));
+  setProgress(pct, running ? `正在${running.name}…` : "即将完成…");
+  if (pj.elapsed != null) el.progressTimer.textContent = pj.elapsed.toFixed(0) + "s";
 }
 
 function setProgress(pct, label) {
